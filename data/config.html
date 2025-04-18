@@ -1,0 +1,160 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Configure Watering</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 2em;
+      max-width: 600px;
+      margin: auto;
+      background-color: #1e1e1e;
+      color: #eee;
+    }
+    label {
+      display: block;
+      margin-top: 1em;
+      font-weight: bold;
+    }
+    input {
+      width: 100%;
+      padding: 0.5em;
+      font-size: 1em;
+      margin-top: 0.3em;
+      background-color: #2c2c2c;
+      color: #fff;
+      border: 1px solid #555;
+      border-radius: 4px;
+    }
+    button {
+      padding: 0.8em 1.2em;
+      font-size: 1em;
+      background-color: #3498db;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin: 0.5em;
+    }
+    button:hover {
+      background-color: #2980b9;
+    }
+    .actions {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-top: 2em;
+    }
+    .main-actions {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+    }
+    .status {
+      margin-top: 1em;
+      font-size: 0.95em;
+      font-weight: bold;
+      color: #4caf50;
+    }
+  </style>
+</head>
+<body>
+  <h2>Watering Configuration</h2>
+  <form id="configForm">
+    <label>Morning Time (HH:MM)</label>
+    <input type="time" name="morning_time" required>
+
+    <label>Evening Time (HH:MM)</label>
+    <input type="time" name="evening_time" required>
+
+    <label>Morning Duration - Upper Line (seconds)</label>
+    <input type="number" name="morning_valve1" min="0" required>
+
+    <label>Morning Duration - Lower Line (seconds)</label>
+    <input type="number" name="morning_valve2" min="0" required>
+
+    <label>Evening Duration - Upper Line (seconds)</label>
+    <input type="number" name="evening_valve1" min="0" required>
+
+    <label>Evening Duration - Lower Line (seconds)</label>
+    <input type="number" name="evening_valve2" min="0" required>
+
+    <label>Manual Duration - Upper Line (seconds)</label>
+    <input type="number" name="manual_upper_duration" min="0" required>
+
+    <label>Manual Duration - Lower Line (seconds)</label>
+    <input type="number" name="manual_lower_duration" min="0" required>
+
+    <div class="main-actions">
+      <button type="button" onclick="resetConfig()">Reset to Defaults</button>
+      <button type="submit">Save Configuration</button>
+    </div>
+  </form>
+
+  <div class="actions">
+    <button onclick="window.location.href='/'">⬅ Back</button>
+    <button onclick="window.location.href='/update'">Firmware Update</button>
+  </div>
+
+  <div class="status" id="statusMsg"></div>
+
+  <script>
+    const form = document.getElementById("configForm");
+    const statusMsg = document.getElementById("statusMsg");
+
+    fetch("/api/config")
+      .then(res => res.json())
+      .then(cfg => {
+        form.morning_time.value = cfg.morning_time;
+        form.evening_time.value = cfg.evening_time;
+        form.morning_valve1.value = cfg.morning_durations.valve1;
+        form.morning_valve2.value = cfg.morning_durations.valve2;
+        form.evening_valve1.value = cfg.evening_durations.valve1;
+        form.evening_valve2.value = cfg.evening_durations.valve2;
+        form.manual_upper_duration.value = cfg.manual_durations.upper;
+        form.manual_lower_duration.value = cfg.manual_durations.lower;
+      });
+
+    form.addEventListener("submit", function(e) {
+      e.preventDefault();
+      const data = {
+        morning_time: form.morning_time.value,
+        evening_time: form.evening_time.value,
+        morning_durations: {
+          valve1: parseInt(form.morning_valve1.value),
+          valve2: parseInt(form.morning_valve2.value)
+        },
+        evening_durations: {
+          valve1: parseInt(form.evening_valve1.value),
+          valve2: parseInt(form.evening_valve2.value)
+        },
+        manual_durations: {
+          upper: parseInt(form.manual_upper_duration.value),
+          lower: parseInt(form.manual_lower_duration.value)
+        }
+      };
+
+      fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      })
+      .then(res => res.json())
+      .then(r => statusMsg.innerText = r.status || "Saved")
+      .catch(err => statusMsg.innerText = "Error saving config");
+    });
+
+    function resetConfig() {
+      fetch("/api/config/reset", { method: "POST" })
+        .then(res => res.json())
+        .then(r => {
+          statusMsg.innerText = r.status || "Reset done";
+          setTimeout(() => window.location.reload(), 1000);
+        });
+    }
+  </script>
+</body>
+</html>
