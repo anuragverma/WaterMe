@@ -1,0 +1,56 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>OTA Update</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background-color: #1e1e1e;
+      color: #eee;
+      padding: 2em;
+      text-align: center;
+    }
+    input[type=file], input[type=submit], button {
+      margin-top: 1em;
+      padding: 0.6em 1.2em;
+      font-size: 1rem;
+      background-color: #3498db;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      width: 100%;
+      max-width: 300px;
+    }
+    input[type=submit]:hover, button:hover {
+      background-color: #2980b9;
+      cursor: pointer;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    @media (max-width: 600px) {
+      body {
+        padding: 1em;
+      }
+      input, button {
+        font-size: 1em;
+        width: 90%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h2>Firmware Update</h2>
+  <form method="POST" action="/upload" enctype="multipart/form-data">
+    <input type="file" name="update" required>
+    <input type="submit" value="Update Firmware">
+  </form>
+  <br/>
+  <button onclick="window.location.href='/config'">⬅ Back to Configuration</button>
+</body>
+</html>

@@ -1,0 +1,160 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Watering System</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 1em;
+      background-color: #1e1e1e;
+      color: #eee;
+      text-align: center;
+    }
+    h1 {
+      margin-bottom: 0.5em;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 1rem;
+      margin: 0.5em;
+      border: none;
+      border-radius: 4px;
+      background-color: #3498db;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #777;
+      cursor: not-allowed;
+    }
+    .section {
+      margin-top: 2em;
+    }
+    #watering-status {
+      font-weight: bold;
+      color: #0f0;
+      animation: blink 1s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .log-container {
+      margin-top: 2em;
+      text-align: left;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
+      background: #2c2c2c;
+      padding: 1em;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Watering System Dashboard</h1>
+  <p><em>Accessible via <strong><a href="http://watering.local" style="color:#4fc3f7;">http://watering.local</a></strong></em></p>
+
+  <div class="section">
+    <button onclick="location.href='/config'">Configuration</button>
+  </div>
+
+  <div class="section">
+    <h2>Manual Control</h2>
+    <button onclick="trigger('/api/trigger')" id="both">💧 Trigger Both Lines</button>
+    <button onclick="trigger('/api/trigger/upper')" id="upper">⬆ Trigger Upper Line</button>
+    <button onclick="trigger('/api/trigger/lower')" id="lower">⬇ Trigger Lower Line</button>
+    <button onclick="trigger('/api/stop')" id="stop">🛑 Stop Watering</button>
+    <p id="watering-status" style="display:none;">💧 Watering in Progress</p>
+  </div>
+
+  <div class="section">
+    <h2>Schedule</h2>
+    <p><strong>Next:</strong> <span id="next-schedule">Loading...</span></p>
+    <p><strong>Skip Status:</strong> <span id="skip-status">Loading...</span></p>
+    <div id="skip-buttons">
+      <button onclick="skip()" id="skip-btn">⏭ Skip Next</button>
+      <button onclick="cancelSkip()" id="cancel-btn" style="display:none;">↩ Cancel Skip</button>
+    </div>
+  </div>
+
+  <div class="log-container">
+    <h2>Recent Watering Logs</h2>
+    <pre id="log-text">Loading...</pre>
+  </div>
+
+  <script>
+    function trigger(url) {
+      fetch(url, { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          alert(data.status || data.error);
+          updateStatus();
+        });
+    }
+
+    function skip() {
+      fetch('/api/skip', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          alert(data.status);
+          updateSchedule();
+        });
+    }
+
+    function cancelSkip() {
+      fetch('/api/skip/cancel', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+          alert(data.status);
+          updateSchedule();
+        });
+    }
+
+    function updateSchedule() {
+      fetch('/api/schedule')
+        .then(res => res.json())
+        .then(data => {
+          document.getElementById('next-schedule').innerText = data.next_schedule;
+          const statusText = data.skip_next ? 'To be skipped' : 'Will be watering';
+          document.getElementById('skip-status').innerText = statusText;
+          document.getElementById('skip-btn').style.display = data.skip_next ? 'none' : 'inline-block';
+          document.getElementById('cancel-btn').style.display = data.skip_next ? 'inline-block' : 'none';
+        });
+    }
+
+    function updateLogs() {
+      fetch('/watering.log')
+        .then(res => res.text())
+        .then(text => {
+          document.getElementById('log-text').innerText = text || 'No logs yet.';
+        });
+    }
+
+    function updateStatus() {
+      fetch('/api/status')
+        .then(res => res.json())
+        .then(data => {
+          const isWatering = data.watering;
+          document.getElementById('watering-status').style.display = isWatering ? 'block' : 'none';
+          document.getElementById('both').disabled = isWatering;
+          document.getElementById('upper').disabled = isWatering;
+          document.getElementById('lower').disabled = isWatering;
+          document.getElementById('stop').disabled = !isWatering;
+        });
+    }
+
+    function refreshAll() {
+      updateStatus();
+      updateSchedule();
+      updateLogs();
+    }
+
+    refreshAll();
+    setInterval(refreshAll, 10000);
+  </script>
+</body>
+</html>

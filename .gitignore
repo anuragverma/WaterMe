@@ -30,3 +30,10 @@
 *.exe
 *.out
 *.app
+
+.pio
+.pio/**/*
+.DS_Store
+
+.vscode/**/*
+.vscode
