@@ -34,3 +34,6 @@
 .pio
 .pio/**/*
 .DS_Store
+
+.vscode/**/*
+.vscode
