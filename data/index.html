@@ -1,160 +1,177 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Watering System</title>
+  <title>Watering Dashboard</title>
   <style>
     body {
       font-family: sans-serif;
-      padding: 1em;
       background-color: #1e1e1e;
       color: #eee;
-      text-align: center;
+      padding: 1em;
+      max-width: 600px;
+      margin: auto;
     }
-    h1 {
-      margin-bottom: 0.5em;
+    .row {
+      display: flex;
+      gap: 1em;
+    }
+    .row button {
+      flex: 1;
     }
     button {
-      padding: 10px 20px;
-      font-size: 1rem;
-      margin: 0.5em;
-      border: none;
-      border-radius: 4px;
+      width: 100%;
+      margin: 0.5em 0;
+      padding: 1em;
+      font-size: 1.1em;
       background-color: #3498db;
       color: white;
+      border: none;
+      border-radius: 6px;
       cursor: pointer;
     }
-    button:disabled {
-      background-color: #777;
-      cursor: not-allowed;
+    button:hover {
+      background-color: #2980b9;
     }
-    .section {
+    .log, .status {
       margin-top: 2em;
-    }
-    #watering-status {
-      font-weight: bold;
-      color: #0f0;
-      animation: blink 1s infinite;
-    }
-    @keyframes blink {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-    .log-container {
-      margin-top: 2em;
-      text-align: left;
-      max-width: 600px;
-      margin-left: auto;
-      margin-right: auto;
-      background: #2c2c2c;
+      background-color: #2c2c2c;
       padding: 1em;
-      border-radius: 8px;
+      border-radius: 6px;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    #toast {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 1em;
+      background-color: #333;
+      color: white;
+      border-radius: 6px;
+      z-index: 1000;
     }
   </style>
 </head>
 <body>
-  <h1>Watering System Dashboard</h1>
-  <p><em>Accessible via <strong><a href="http://watering.local" style="color:#4fc3f7;">http://watering.local</a></strong></em></p>
+  <h2>Automatic Watering System</h2>
 
-  <div class="section">
-    <button onclick="location.href='/config'">Configuration</button>
+  <button onclick="location.href='/config'">Configuration</button>
+  <button onclick="triggerWatering()">Trigger Both Lines</button>
+
+  <div class="row">
+    <button onclick="triggerUpper()">Upper Line</button>
+    <button onclick="triggerLower()">Lower Line</button>
   </div>
 
-  <div class="section">
-    <h2>Manual Control</h2>
-    <button onclick="trigger('/api/trigger')" id="both">💧 Trigger Both Lines</button>
-    <button onclick="trigger('/api/trigger/upper')" id="upper">⬆ Trigger Upper Line</button>
-    <button onclick="trigger('/api/trigger/lower')" id="lower">⬇ Trigger Lower Line</button>
-    <button onclick="trigger('/api/stop')" id="stop">🛑 Stop Watering</button>
-    <p id="watering-status" style="display:none;">💧 Watering in Progress</p>
+  <button id="skipBtn" onclick="toggleSkip()"></button>
+  <button onclick="stopWatering()">Stop Watering</button>
+
+  <div class="row">
+    <button id="lightBtn" onclick="toggleLight()">Loading Light...</button>
+    <button id="fanBtn" onclick="toggleFan()">Loading Fan...</button>
   </div>
 
-  <div class="section">
-    <h2>Schedule</h2>
-    <p><strong>Next:</strong> <span id="next-schedule">Loading...</span></p>
-    <p><strong>Skip Status:</strong> <span id="skip-status">Loading...</span></p>
-    <div id="skip-buttons">
-      <button onclick="skip()" id="skip-btn">⏭ Skip Next</button>
-      <button onclick="cancelSkip()" id="cancel-btn" style="display:none;">↩ Cancel Skip</button>
-    </div>
+  <div class="status" id="scheduleStatus">Loading schedule...</div>
+
+  <div class="log">
+    <h3>Recent Logs</h3>
+    <pre id="logContent">Loading logs...</pre>
   </div>
 
-  <div class="log-container">
-    <h2>Recent Watering Logs</h2>
-    <pre id="log-text">Loading...</pre>
-  </div>
+  <div id="toast"></div>
 
   <script>
-    function trigger(url) {
-      fetch(url, { method: 'POST' })
+    let lightOn = false;
+    let fanOn = false;
+
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.innerText = msg;
+      toast.style.display = "block";
+      setTimeout(() => toast.style.display = "none", 3000);
+    }
+
+    function refresh() {
+      fetch("/api/status").then(res => res.json()).then(data => {
+        document.getElementById("scheduleStatus").innerText =
+          `Next schedule: ${data.next}
+Skip status: ${data.skip ? "To be skipped" : "Will be watering"}${data.watering ? `
+Status: Watering in progress` : ""}`;
+
+        document.getElementById("skipBtn").innerText = data.skip ? "Cancel Skip" : "Skip Next Schedule";
+
+        lightOn = data.light;
+        fanOn = data.fan;
+
+        document.getElementById("lightBtn").innerText = lightOn ? "Turn Light OFF" : "Turn Light ON";
+        document.getElementById("fanBtn").innerText = fanOn ? "Turn Fan OFF" : "Turn Fan ON";
+      });
+
+      fetch("/watering.log")
+        .then(r => r.text())
+        .then(text => document.getElementById("logContent").innerText = text)
+        .catch(() => document.getElementById("logContent").innerText = "Not found: /watering.log");
+    }
+
+    function triggerWatering() {
+      fetch("/api/trigger", { method: "POST" })
         .then(res => res.json())
-        .then(data => {
-          alert(data.status || data.error);
-          updateStatus();
-        });
+        .then(data => showToast(data.status || "Watering started"))
+        .catch(() => showToast("Failed to start watering"))
+        .finally(refresh);
     }
 
-    function skip() {
-      fetch('/api/skip', { method: 'POST' })
+    function triggerUpper() {
+      fetch("/api/trigger/upper", { method: "POST" })
         .then(res => res.json())
-        .then(data => {
-          alert(data.status);
-          updateSchedule();
-        });
+        .then(data => showToast(data.status || "Upper line triggered"))
+        .catch(() => showToast("Failed to start upper line"))
+        .finally(refresh);
     }
 
-    function cancelSkip() {
-      fetch('/api/skip/cancel', { method: 'POST' })
+    function triggerLower() {
+      fetch("/api/trigger/lower", { method: "POST" })
         .then(res => res.json())
-        .then(data => {
-          alert(data.status);
-          updateSchedule();
-        });
+        .then(data => showToast(data.status || "Lower line triggered"))
+        .catch(() => showToast("Failed to start lower line"))
+        .finally(refresh);
     }
 
-    function updateSchedule() {
-      fetch('/api/schedule')
+    function stopWatering() {
+      fetch("/api/stop", { method: "POST" })
         .then(res => res.json())
-        .then(data => {
-          document.getElementById('next-schedule').innerText = data.next_schedule;
-          const statusText = data.skip_next ? 'To be skipped' : 'Will be watering';
-          document.getElementById('skip-status').innerText = statusText;
-          document.getElementById('skip-btn').style.display = data.skip_next ? 'none' : 'inline-block';
-          document.getElementById('cancel-btn').style.display = data.skip_next ? 'inline-block' : 'none';
-        });
+        .then(data => showToast(data.status || "Watering stopped"))
+        .catch(() => showToast("Failed to stop watering"))
+        .finally(refresh);
     }
 
-    function updateLogs() {
-      fetch('/watering.log')
-        .then(res => res.text())
-        .then(text => {
-          document.getElementById('log-text').innerText = text || 'No logs yet.';
-        });
+    function toggleSkip() {
+      const endpoint = skipBtn.innerText.includes("Cancel") ? "/api/skip/cancel" : "/api/skip";
+      fetch(endpoint, { method: "POST" }).then(refresh);
     }
 
-    function updateStatus() {
-      fetch('/api/status')
+    function toggleLight() {
+      fetch("/api/light/" + (lightOn ? "off" : "on"), { method: "POST" })
         .then(res => res.json())
-        .then(data => {
-          const isWatering = data.watering;
-          document.getElementById('watering-status').style.display = isWatering ? 'block' : 'none';
-          document.getElementById('both').disabled = isWatering;
-          document.getElementById('upper').disabled = isWatering;
-          document.getElementById('lower').disabled = isWatering;
-          document.getElementById('stop').disabled = !isWatering;
-        });
+        .then(data => showToast(data.status))
+        .finally(refresh);
     }
 
-    function refreshAll() {
-      updateStatus();
-      updateSchedule();
-      updateLogs();
+    function toggleFan() {
+      fetch("/api/fan/" + (fanOn ? "off" : "on"), { method: "POST" })
+        .then(res => res.json())
+        .then(data => showToast(data.status))
+        .finally(refresh);
     }
 
-    refreshAll();
-    setInterval(refreshAll, 10000);
+    setInterval(refresh, 10000);
+    refresh();
   </script>
 </body>
 </html>

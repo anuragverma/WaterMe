@@ -14,16 +14,22 @@ WebServer server(80);
 const char* configFile = "/config.json";
 const char* logFile = "/watering.log";
 
-const int UPPER_LINE_PIN = 26;
-const int LOWER_LINE_PIN = 27;
+const int UPPER_LINE_PIN = 26;  // Relay 1
+const int LOWER_LINE_PIN = 27;  // Relay 2
+const int LIGHT_RELAY_PIN = 25;  // Relay 3 for Light
+const int FAN_RELAY_PIN = 33;    // Relay 4 for Fan
 
 bool watering = false;
-unsigned long wateringStartTime = 0;
-int currentWateringDuration = 0;
+unsigned long upperLineStartTime = 0;
+unsigned long lowerLineStartTime = 0;
+int upperLineDuration = 0;
+int lowerLineDuration = 0;
 bool skipNextSchedule = false;
 unsigned long lastScheduleCheck = 0;
 
 struct WateringConfig {
+  bool light_on;
+  bool fan_on;
   String morning_time;
   String evening_time;
   int morning_valve1;
@@ -84,22 +90,26 @@ String getNextScheduleStr() {
   return label + " - " + timeStr + " (" + period + ")";
 }
 
-void startWatering(int upperLineDuration, int lowerLineDuration) {
-  if(upperLineDuration > 0) {
-    digitalWrite(UPPER_LINE_PIN, HIGH);
+void startWatering(int upDur, int lowDur) {
+  if (upDur > 0) {
+    digitalWrite(UPPER_LINE_PIN, LOW);
+    upperLineStartTime = millis();
+    upperLineDuration = upDur;
   }
-  if(lowerLineDuration > 0) {
-    digitalWrite(LOWER_LINE_PIN, HIGH);
+  if (lowDur > 0) {
+    digitalWrite(LOWER_LINE_PIN, LOW);
+    lowerLineStartTime = millis();
+    lowerLineDuration = lowDur;
   }
-  wateringStartTime = millis();
-  currentWateringDuration = max(upperLineDuration, lowerLineDuration);
   watering = true;
   appendLog(getCurrentTimeStr() + " - Started watering (Upper=" + upperLineDuration + "s, Lower=" + lowerLineDuration + "s)");
 }
 
 void stopWatering() {
-  digitalWrite(UPPER_LINE_PIN, LOW);
-  digitalWrite(LOWER_LINE_PIN, LOW);
+  digitalWrite(UPPER_LINE_PIN, HIGH);
+  digitalWrite(LOWER_LINE_PIN, HIGH);
+  upperLineDuration = 0;
+  lowerLineDuration = 0;
   watering = false;
   appendLog(getCurrentTimeStr() + " - Stopped watering");
 }
@@ -109,6 +119,8 @@ bool loadConfig() {
   File file = LittleFS.open(configFile, "r");
   if (!file) return false;
   StaticJsonDocument<512> doc;
+  doc["light_on"] = config.light_on;
+  doc["fan_on"] = config.fan_on;
   DeserializationError err = deserializeJson(doc, file);
   file.close();
   if (err) return false;
@@ -121,6 +133,9 @@ bool loadConfig() {
   config.evening_valve2 = doc["evening_durations"]["valve2"] | 60;
   config.manual_upper_duration = doc["manual_durations"]["upper"] | 60;
   config.manual_lower_duration = doc["manual_durations"]["lower"] | 60;
+  config.light_on = doc["light_on"] | false;
+  config.fan_on = doc["fan_on"] | false;
+  return true;
   return true;
 }
 
@@ -141,8 +156,15 @@ void setup() {
   Serial.begin(115200);
   pinMode(UPPER_LINE_PIN, OUTPUT);
   pinMode(LOWER_LINE_PIN, OUTPUT);
-  digitalWrite(UPPER_LINE_PIN, LOW);
-  digitalWrite(LOWER_LINE_PIN, LOW);
+  pinMode(LIGHT_RELAY_PIN, OUTPUT);
+  pinMode(FAN_RELAY_PIN, OUTPUT);
+  digitalWrite(UPPER_LINE_PIN, HIGH);  // Relay OFF (active low)
+  digitalWrite(LOWER_LINE_PIN, HIGH);  // Relay OFF (active low)
+  digitalWrite(LIGHT_RELAY_PIN, HIGH); // Light OFF
+  digitalWrite(FAN_RELAY_PIN, HIGH);   // Fan OFF
+
+  if (config.light_on) digitalWrite(LIGHT_RELAY_PIN, LOW);
+  if (config.fan_on) digitalWrite(FAN_RELAY_PIN, LOW);
 
   WiFiManager wm;
   if (!wm.autoConnect("AutoWaterConfig")) {
@@ -151,6 +173,10 @@ void setup() {
 
   if (!LittleFS.begin()) {
     Serial.println("LittleFS failed"); return;
+  }
+  if (!LittleFS.exists(logFile)) {
+    File log = LittleFS.open(logFile, "w");
+    if (log) log.close();
   }
   if (!loadConfig()) {
     Serial.println("Loading config failed. Writing defaults.");
@@ -216,6 +242,8 @@ void setup() {
     config.evening_valve2 = doc["evening_durations"]["valve2"];
     config.manual_upper_duration = doc["manual_durations"]["upper"];
     config.manual_lower_duration = doc["manual_durations"]["lower"];
+    config.light_on = digitalRead(LIGHT_RELAY_PIN) == LOW;
+    config.fan_on = digitalRead(FAN_RELAY_PIN) == LOW;
     File file = LittleFS.open(configFile, "w");
     if (file) {
       serializeJsonPretty(doc, file);
@@ -286,6 +314,15 @@ void setup() {
     }
   });
 
+  server.on("/api/stop", HTTP_POST, []() {
+    if (watering) {
+      stopWatering();
+      server.send(200, "application/json", "{\"status\":\"Watering stopped manually\"}");
+    } else {
+      server.send(400, "application/json", "{\"error\":\"Not currently watering\"}");
+    }
+  });
+
   server.on("/api/skip", HTTP_POST, []() {
     skipNextSchedule = true;
     server.send(200, "application/json", "{\"status\":\"Next watering schedule skipped\"}");
@@ -302,8 +339,67 @@ void setup() {
   });
 
   server.on("/api/status", HTTP_GET, []() {
-    String json = String("{\"watering\":" + String(watering ? "true" : "false") + "}");
+    String json = "{";
+    json += "\"watering\":" + String(watering ? "true" : "false");
+    json += ",\"next\":\"" + getNextScheduleStr() + "\"";
+    json += ",\"skip\":" + String(skipNextSchedule ? "true" : "false");
+    json += ",\"light\":" + String(digitalRead(LIGHT_RELAY_PIN) == LOW ? "true" : "false");
+    json += ",\"fan\":" + String(digitalRead(FAN_RELAY_PIN) == LOW ? "true" : "false");
+    json += "}";
     server.send(200, "application/json", json);
+  });
+
+  server.on("/api/light/on", HTTP_POST, []() {
+    digitalWrite(LIGHT_RELAY_PIN, LOW);
+    config.light_on = true;
+    File file = LittleFS.open(configFile, "w");
+    if (file) {
+      StaticJsonDocument<512> doc;
+      doc["light_on"] = true;
+      serializeJsonPretty(doc, file);
+      file.close();
+    }
+    appendLog(getCurrentTimeStr() + " - Light turned ON");
+    server.send(200, "application/json", "{\"status\":\"Light turned on\"}");
+  });
+  server.on("/api/light/off", HTTP_POST, []() {
+    digitalWrite(LIGHT_RELAY_PIN, HIGH);
+    config.light_on = false;
+    File file = LittleFS.open(configFile, "w");
+    if (file) {
+      StaticJsonDocument<512> doc;
+      doc["light_on"] = false;
+      serializeJsonPretty(doc, file);
+      file.close();
+    }
+    appendLog(getCurrentTimeStr() + " - Light turned OFF");
+    server.send(200, "application/json", "{\"status\":\"Light turned off\"}");
+  });
+  server.on("/api/fan/on", HTTP_POST, []() {
+    digitalWrite(FAN_RELAY_PIN, LOW);
+    config.fan_on = true;
+    File file = LittleFS.open(configFile, "w");
+    if (file) {
+      StaticJsonDocument<512> doc;
+      doc["fan_on"] = true;
+      serializeJsonPretty(doc, file);
+      file.close();
+    }
+    appendLog(getCurrentTimeStr() + " - Fan turned ON");
+    server.send(200, "application/json", "{\"status\":\"Fan turned on\"}");
+  });
+  server.on("/api/fan/off", HTTP_POST, []() {
+    digitalWrite(FAN_RELAY_PIN, HIGH);
+    config.fan_on = false;
+    File file = LittleFS.open(configFile, "w");
+    if (file) {
+      StaticJsonDocument<512> doc;
+      doc["fan_on"] = false;
+      serializeJsonPretty(doc, file);
+      file.close();
+    }
+    appendLog(getCurrentTimeStr() + " - Fan turned OFF");
+    server.send(200, "application/json", "{\"status\":\"Fan turned off\"}");
   });
 
   server.on("/watering.log", HTTP_GET, []() {
@@ -360,8 +456,22 @@ unsigned long lastNTPSync = 0;
 
 void loop() {
   server.handleClient();
-  if (watering && millis() - wateringStartTime >= currentWateringDuration * 1000) {
-    stopWatering(); delay(500);
+  if (watering) {
+    unsigned long now = millis();
+    if (upperLineDuration > 0 && now - upperLineStartTime >= upperLineDuration * 1000) {
+      digitalWrite(UPPER_LINE_PIN, HIGH);
+      upperLineDuration = 0;
+      appendLog(getCurrentTimeStr() + " - Upper line stopped");
+    }
+    if (lowerLineDuration > 0 && now - lowerLineStartTime >= lowerLineDuration * 1000) {
+      digitalWrite(LOWER_LINE_PIN, HIGH);
+      lowerLineDuration = 0;
+      appendLog(getCurrentTimeStr() + " - Lower line stopped");
+    }
+    if (upperLineDuration == 0 && lowerLineDuration == 0) {
+      watering = false;
+    }
+    delay(500);
   }
   if (millis() - lastNTPSync > 6UL * 60UL * 60UL * 1000UL) {
     syncNTP();
