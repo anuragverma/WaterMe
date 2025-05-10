@@ -56,6 +56,12 @@
       border-radius: 6px;
       z-index: 1000;
     }
+    #versionInfo {
+      margin-top: 1.5em;
+      font-size: 0.9em;
+      color: #aaa;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -84,6 +90,7 @@
     <pre id="logContent">Loading logs...</pre>
   </div>
 
+  <div id="versionInfo">Version: loading...</div>
   <div id="toast"></div>
 
   <script>
@@ -169,6 +176,13 @@ Status: Watering in progress` : ""}`;
         .then(data => showToast(data.status))
         .finally(refresh);
     }
+
+    // Fetch firmware version
+    fetch("/api/version")
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById("versionInfo").innerText = "Version: " + data.version;
+      });
 
     setInterval(refresh, 10000);
     refresh();

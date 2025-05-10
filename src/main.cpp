@@ -13,6 +13,7 @@ WebServer server(80);
 
 const char* configFile = "/config.json";
 const char* logFile = "/watering.log";
+const char* buildVersion = __DATE__ " " __TIME__;
 
 const int UPPER_LINE_PIN = 26;  // Relay 1
 const int LOWER_LINE_PIN = 27;  // Relay 2
@@ -410,6 +411,10 @@ void setup() {
     }
     server.streamFile(file, "text/plain");
     file.close();
+  });
+
+  server.on("/api/version", HTTP_GET, []() {
+    server.send(200, "application/json", String("{\"version\":\"") + buildVersion + "\"}");
   });
 
   server.begin();
