@@ -1,60 +1,65 @@
 pipeline {
   agent {
     docker {
-      image 'platformio/platformio-core:latest'
+      image 'takigama/platformio:latest'
       args '-u 1000:1000'
     }
   }
 
   environment {
-    ARTIFACT = 'firmware.bin'
-    BASE_URL = 'http://repository.fundebazi.com/repository'
-    DATE_TAG = sh(script: 'date +%Y%m%d', returnStdout: true).trim()
+    PROJECT = env.JOB_NAME.tokenize('/')[1]       // anuragverma/WaterMe → WaterMe
+    BRANCH = env.BRANCH_NAME ?: 'unknown'         // fallback if not populated
+    DATE = sh(script: "date +%Y%m%d", returnStdout: true).trim()
+    BUILD_NO = env.BUILD_NUMBER
+    UPLOAD_DIR = "http://repository.fundebazi.com/repository/${PROJECT}/${BRANCH}/${DATE}_${BUILD_NO}/"
+    BIN_FILE = "firmware.bin"
+    BIN_PATH = ".pio/build/esp32dev/${BIN_FILE}"
+    REPO_USER = credentials('repository-creds').username
+    REPO_PASS = credentials('repository-creds').password
   }
 
   stages {
-    stage('Init') {
+    stage('Checkout') {
       steps {
-        script {
-          env.PROJECT_DIR = sh(script: "basename -s .git \$(git config --get remote.origin.url)", returnStdout: true).trim()
-          env.VERSION_DIR = "${env.DATE_TAG}_${env.BUILD_NUMBER}"
-          env.UPLOAD_DIR = "${env.BASE_URL}/${env.PROJECT_DIR}/${env.BRANCH_NAME}/${env.VERSION_DIR}"
-          env.UPLOAD_URL = "${env.UPLOAD_DIR}/${env.ARTIFACT}"
-
-        }
+        checkout scm
       }
     }
 
     stage('Build Firmware') {
       steps {
-        dir("${env.PROJECT_DIR}") {
-          sh 'platformio run'
+        sh 'pio run'
+      }
+    }
+
+    stage('Prepare Upload Directory') {
+      steps {
+        script {
+          def levels = UPLOAD_DIR.replace('http://repository.fundebazi.com/', '').split('/')
+          def path = ''
+          for (int i = 0; i < levels.size(); i++) {
+            path += '/' + levels[i]
+            sh """
+              curl -sf -u ${REPO_USER}:${REPO_PASS} -X MKCOL http://repository.fundebazi.com${path} || true
+            """
+          }
         }
-        sh "ls -lh ${env.PROJECT_DIR}/.pio/build/esp32dev"
       }
     }
 
     stage('Upload Firmware') {
       steps {
-        script {
-          def artifactPath = "${env.PROJECT_DIR}/.pio/build/esp32dev/${env.ARTIFACT}"
-          sh """
-            curl -u uploader:$REPO_PASS -X MKCOL ${env.BASE_URL} || true
-            curl -u uploader:$REPO_PASS -X MKCOL ${env.BASE_URL}/${env.PROJECT_DIR} || true
-            curl -u uploader:$REPO_PASS -X MKCOL ${env.BASE_URL}/${env.PROJECT_DIR}/${env.BRANCH_NAME} || true
-            curl -u uploader:$REPO_PASS -X MKCOL ${env.UPLOAD_DIR} || true
-            curl -u uploader:$REPO_PASS \
-              -X PUT --upload-file ${artifactPath} \
-              ${env.UPLOAD_URL}
-          """
-        }
+        sh """
+          curl -u ${REPO_USER}:${REPO_PASS} \\
+            -X PUT --upload-file ${BIN_PATH} \\
+            ${UPLOAD_DIR}${BIN_FILE}
+        """
       }
     }
-  }
 
-  post {
-    always {
-      archiveArtifacts artifacts: "${env.PROJECT_DIR}/.pio/build/esp32dev/${env.ARTIFACT}", allowEmptyArchive: true
+    stage('Verify Upload') {
+      steps {
+        sh "curl -sI ${UPLOAD_DIR}${BIN_FILE}"
+      }
     }
   }
 }
