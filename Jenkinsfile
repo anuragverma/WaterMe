@@ -18,8 +18,9 @@ pipeline {
         script {
           env.PROJECT_DIR = sh(script: "basename -s .git \$(git config --get remote.origin.url)", returnStdout: true).trim()
           env.VERSION_DIR = "${env.DATE_TAG}_${env.BUILD_NUMBER}"
-          env.UPLOAD_DIR = "${env.BASE_URL}/${env.PROJECT_DIR}/${env.VERSION_DIR}"
+          env.UPLOAD_DIR = "${env.BASE_URL}/${env.PROJECT_DIR}/${env.BRANCH_NAME}/${env.VERSION_DIR}"
           env.UPLOAD_URL = "${env.UPLOAD_DIR}/${env.ARTIFACT}"
+
         }
       }
     }
@@ -40,6 +41,7 @@ pipeline {
           sh """
             curl -u uploader:$REPO_PASS -X MKCOL ${env.BASE_URL} || true
             curl -u uploader:$REPO_PASS -X MKCOL ${env.BASE_URL}/${env.PROJECT_DIR} || true
+            curl -u uploader:$REPO_PASS -X MKCOL ${env.BASE_URL}/${env.PROJECT_DIR}/${env.BRANCH_NAME} || true
             curl -u uploader:$REPO_PASS -X MKCOL ${env.UPLOAD_DIR} || true
             curl -u uploader:$REPO_PASS \
               -X PUT --upload-file ${artifactPath} \
