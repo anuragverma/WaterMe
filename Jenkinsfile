@@ -18,8 +18,7 @@ pipeline {
     stage('Initialize Vars') {
       steps {
         script {
-          def jobParts = env.JOB_NAME.tokenize('/')
-          env.PROJECT = jobParts.size() > 1 ? jobParts[1] : jobParts[0]
+          env.PROJECT = "WaterMe"
           env.BRANCH = env.BRANCH_NAME ?: 'unknown'
           env.DATE = sh(script: "date +%Y%m%d", returnStdout: true).trim()
           env.BUILD_NO = env.BUILD_NUMBER
