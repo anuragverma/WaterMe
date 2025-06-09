@@ -9,7 +9,9 @@ pipeline {
   environment {
     BIN_FILE = 'firmware.bin'
     BIN_PATH = ".pio/build/esp32dev/${BIN_FILE}"
-    REPO_CREDS = credentials('repository-creds') // Note: this must be defined in Jenkins credentials
+    REPO_CREDS = credentials('repository-creds')
+    PLATFORMIO_CORE_DIR = "${WORKSPACE}/.platformio"
+    HOME = "${WORKSPACE}" // ensures pio uses this path
   }
 
   stages {
