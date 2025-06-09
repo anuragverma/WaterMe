@@ -7,18 +7,26 @@ pipeline {
   }
 
   environment {
-    PROJECT = env.JOB_NAME.tokenize('/')[1]       // anuragverma/WaterMe → WaterMe
-    BRANCH = env.BRANCH_NAME ?: 'unknown'         // fallback if not populated
-    DATE = sh(script: "date +%Y%m%d", returnStdout: true).trim()
-    BUILD_NO = env.BUILD_NUMBER
-    UPLOAD_DIR = "http://repository.fundebazi.com/repository/${PROJECT}/${BRANCH}/${DATE}_${BUILD_NO}/"
-    BIN_FILE = "firmware.bin"
+    BIN_FILE = 'firmware.bin'
     BIN_PATH = ".pio/build/esp32dev/${BIN_FILE}"
-    REPO_USER = credentials('repository-creds').username
-    REPO_PASS = credentials('repository-creds').password
+    REPO_CREDS = credentials('repository-creds') // Note: this must be defined in Jenkins credentials
   }
 
   stages {
+    stage('Initialize Vars') {
+      steps {
+        script {
+          def jobParts = env.JOB_NAME.tokenize('/')
+          env.PROJECT = jobParts.size() > 1 ? jobParts[1] : jobParts[0]
+          env.BRANCH = env.BRANCH_NAME ?: 'unknown'
+          env.DATE = sh(script: "date +%Y%m%d", returnStdout: true).trim()
+          env.BUILD_NO = env.BUILD_NUMBER
+          env.UPLOAD_DIR = "http://repository.fundebazi.com/repository/${env.PROJECT}/${env.BRANCH}/${env.DATE}_${env.BUILD_NO}/"
+          env.UPLOAD_URL = "${env.UPLOAD_DIR}${env.BIN_FILE}"
+        }
+      }
+    }
+
     stage('Checkout') {
       steps {
         checkout scm
@@ -34,12 +42,12 @@ pipeline {
     stage('Prepare Upload Directory') {
       steps {
         script {
-          def levels = UPLOAD_DIR.replace('http://repository.fundebazi.com/', '').split('/')
+          def levels = env.UPLOAD_DIR.replace('http://repository.fundebazi.com/', '').split('/')
           def path = ''
           for (int i = 0; i < levels.size(); i++) {
             path += '/' + levels[i]
             sh """
-              curl -sf -u ${REPO_USER}:${REPO_PASS} -X MKCOL http://repository.fundebazi.com${path} || true
+              curl -sf -u ${env.REPO_CREDS_USR}:${env.REPO_CREDS_PSW} -X MKCOL http://repository.fundebazi.com${path} || true
             """
           }
         }
@@ -49,16 +57,16 @@ pipeline {
     stage('Upload Firmware') {
       steps {
         sh """
-          curl -u ${REPO_USER}:${REPO_PASS} \\
-            -X PUT --upload-file ${BIN_PATH} \\
-            ${UPLOAD_DIR}${BIN_FILE}
+          curl -u ${env.REPO_CREDS_USR}:${env.REPO_CREDS_PSW} \\
+            -X PUT --upload-file ${env.BIN_PATH} \\
+            ${env.UPLOAD_URL}
         """
       }
     }
 
     stage('Verify Upload') {
       steps {
-        sh "curl -sI ${UPLOAD_DIR}${BIN_FILE}"
+        sh "curl -sI ${env.UPLOAD_URL}"
       }
     }
   }
